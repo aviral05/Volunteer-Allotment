@@ -69,7 +69,3 @@ This project automates the entire process with a clean submission flow, secure a
 * 🧱 Database-level integrity using constraints
 * 📱 Mobile-responsive frontend
 * ☁️ Fully deployed and live
-
-
-
-Just tell me 👍
