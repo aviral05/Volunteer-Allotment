@@ -1,29 +1,38 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 import os
 
+# ------------------ APP SETUP ------------------
+
 app = FastAPI()
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],      # tighten later if needed
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 FORM_OPEN = True
-
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+# ------------------ DB DEPENDENCY ------------------
+
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        yield conn
+    finally:
+        conn.close()   # 🔑 prevents locks
+
+# ------------------ HEALTH ------------------
 
 @app.get("/")
 def health():
     return {"status": "API running"}
 
+# ------------------ SUBMIT FORM ------------------
 
 @app.post("/submit")
 def submit_form(
@@ -31,13 +40,13 @@ def submit_form(
     name: str,
     phone: str,
     company: str,
-    slot: str
+    slot: str,
+    db=Depends(get_db)
 ):
     if not FORM_OPEN:
         raise HTTPException(status_code=403, detail="Form is closed")
 
-    conn = get_db()
-    cur = conn.cursor()
+    cur = db.cursor()
 
     try:
         # Check regNo exists
@@ -48,7 +57,7 @@ def submit_form(
         if not cur.fetchone():
             raise HTTPException(status_code=400, detail="Invalid regNo")
 
-        # Check duplicate submission for same company
+        # Prevent duplicate submission
         cur.execute(
             """
             SELECT 1
@@ -75,18 +84,27 @@ def submit_form(
             (regNo, name, phone, company, slot)
         )
 
-        conn.commit()
+        db.commit()
         return {"message": "Submission successful"}
 
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         cur.close()
-        conn.close()
 
+# ------------------ ASSIGN VOLUNTEER ------------------
 
 @app.post("/assign")
-def assign_volunteer(company: str, slot: str):
-    conn = get_db()
-    cur = conn.cursor()
+def assign_volunteer(
+    company: str,
+    slot: str,
+    db=Depends(get_db)
+):
+    cur = db.cursor()
 
     try:
         cur.execute(
@@ -111,7 +129,8 @@ def assign_volunteer(company: str, slot: str):
 
         cur.execute(
             """
-            INSERT INTO Volunteering (regNo, name, email, phone, company, slot, type)
+            INSERT INTO Volunteering
+            (regNo, name, email, phone, company, slot, type)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (regNo, name, email, phone, company, slot, "HRM Volunteering")
@@ -135,7 +154,7 @@ def assign_volunteer(company: str, slot: str):
             (regNo,)
         )
 
-        conn.commit()
+        db.commit()
 
         return {
             "message": "Volunteer assigned",
@@ -145,6 +164,8 @@ def assign_volunteer(company: str, slot: str):
             "slot": slot
         }
 
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Assignment failed")
     finally:
         cur.close()
-        conn.close()
