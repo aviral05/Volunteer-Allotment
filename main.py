@@ -50,13 +50,24 @@ def submit_form(
     if not cur.fetchone():
         raise HTTPException(status_code=400, detail="Invalid regNo")
 
-    # Check duplicate submission
+    # Check duplicate submission for same company
     cur.execute(
-        "SELECT 1 FROM Submissions WHERE regNo = %s AND status = 'Pending'",
-        (regNo,)
-    )
-    if cur.fetchone():
-        raise HTTPException(status_code=400, detail="Already submitted")
+    	"""
+    	SELECT 1
+    	FROM Submissions
+    	WHERE regNo = %s
+       	AND company = %s
+      	AND status = 'Pending'
+    	""",
+    	(regNo, company)
+	)
+
+      if cur.fetchone():
+    	raise HTTPException(
+        	status_code=400,
+        	detail="You have already submitted for this company"
+    	)
+
 
     # Insert submission
     cur.execute(
