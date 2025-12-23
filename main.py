@@ -52,7 +52,7 @@ def submit_form(
         cur.execute(
             """
             SELECT 1
-            FROM Submissions
+            FROM Submissions_v2
             WHERE regNo = %s
               AND company = %s
               AND status = 'Pending'
@@ -69,7 +69,7 @@ def submit_form(
         # Insert submission
         cur.execute(
             """
-            INSERT INTO Submissions (regNo, name, phone, company, slot)
+            INSERT INTO Submissions_v2 (regNo, name, phone, company, slot)
             VALUES (%s, %s, %s, %s, %s)
             """,
             (regNo, name, phone, company, slot)
@@ -93,7 +93,7 @@ def assign_volunteer(company: str, slot: str):
             """
             SELECT r.regNo, r.name, r.email, r.phone, r.volcount
             FROM Recruits r
-            JOIN Submissions s ON r.regNo = s.regNo
+            JOIN Submissions_v2 s ON r.regNo = s.regNo
             WHERE s.status = 'Pending'
               AND s.company = %s
               AND s.slot = %s
@@ -119,7 +119,7 @@ def assign_volunteer(company: str, slot: str):
 
         cur.execute(
             """
-            UPDATE Submissions
+            UPDATE Submissions_v2
             SET status = 'Assigned'
             WHERE regNo = %s AND status = 'Pending'
             """,
