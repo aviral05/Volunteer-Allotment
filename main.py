@@ -1,15 +1,40 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.openapi.docs import get_swagger_ui_html
 import psycopg2
 import os
+import secrets
+
+# ------------------ SWAGGER AUTH ------------------
+
+security = HTTPBasic()
+
+SWAGGER_USER = os.getenv("SWAGGER_USER")
+SWAGGER_PASS = os.getenv("SWAGGER_PASS")
+
+def swagger_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(
+        credentials.username, SWAGGER_USER
+    )
+    correct_password = secrets.compare_digest(
+        credentials.password, SWAGGER_PASS
+    )
+
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
 # ------------------ APP SETUP ------------------
 
-app = FastAPI()
+app = FastAPI(docs_url=None, redoc_url=None)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # tighten later if needed
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -24,7 +49,16 @@ def get_db():
     try:
         yield conn
     finally:
-        conn.close()   # 🔑 prevents locks
+        conn.close()
+
+# ------------------ CUSTOM SWAGGER ------------------
+
+@app.get("/docs", include_in_schema=False)
+def custom_swagger_ui(credentials: HTTPBasicCredentials = Depends(swagger_auth)):
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title="HRM Admin API"
+    )
 
 # ------------------ HEALTH ------------------
 
@@ -49,7 +83,6 @@ def submit_form(
     cur = db.cursor()
 
     try:
-        # Check regNo exists
         cur.execute(
             "SELECT 1 FROM Recruits WHERE regNo = %s",
             (regNo,)
@@ -57,7 +90,6 @@ def submit_form(
         if not cur.fetchone():
             raise HTTPException(status_code=400, detail="Invalid regNo")
 
-        # Prevent duplicate submission
         cur.execute(
             """
             SELECT 1
@@ -75,7 +107,6 @@ def submit_form(
                 detail="You have already submitted for this company"
             )
 
-        # Insert submission
         cur.execute(
             """
             INSERT INTO Submissions_v2 (regNo, name, phone, company, slot)
@@ -96,13 +127,14 @@ def submit_form(
     finally:
         cur.close()
 
-# ------------------ ASSIGN VOLUNTEER ------------------
+# ------------------ ASSIGN VOLUNTEER (PROTECTED) ------------------
 
 @app.post("/assign")
 def assign_volunteer(
     company: str,
     slot: str,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    _: HTTPBasicCredentials = Depends(swagger_auth)
 ):
     cur = db.cursor()
 
